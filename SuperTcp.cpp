@@ -3,12 +3,13 @@
 
 CSuperTcp::CSuperTcp()
 {
-
+	InitializeCriticalSection(&m_csCtxMap);
 }
 
 CSuperTcp::~CSuperTcp()
 {
 	Stop();
+	DeleteCriticalSection(&m_csCtxMap);
 }
 
 DWORD CSuperTcp::GetProcessorCoreCount()
@@ -533,6 +534,7 @@ void CSuperTcp::Stop()
 	}
 
 	//清理sockets
+	EnterCriticalSection(&m_csCtxMap);
 	auto pairSocketContex = m_mapSocketToContex.begin();
 	while (pairSocketContex != m_mapSocketToContex.end())
 	{
@@ -572,6 +574,7 @@ void CSuperTcp::Stop()
 
 	decltype(m_mapSocketToContex) mapTemp1;
 	m_mapSocketToContex.swap(mapTemp1);
+	LeaveCriticalSection(&m_csCtxMap);
 
 	m_lFreeSock = 0;
 
@@ -639,6 +642,8 @@ void CSuperTcp::RunAsServer()
 
 								BOOL bIsReUse = FALSE;
 								//socket可能会复用
+								EnterCriticalSection(&m_csCtxMap);
+
 								auto it = m_mapSocketToContex.find(sNewSock);
 								if (it != m_mapSocketToContex.end())
 								{
@@ -650,6 +655,14 @@ void CSuperTcp::RunAsServer()
 									pContex = new PER_IO_CONTEXT;
 								}
 
+								LeaveCriticalSection(&m_csCtxMap);
+
+								if (!pContex)
+								{
+									closesocket(sNewSock);
+									continue;
+								}
+
 								if (pContex)
 								{
 									//不是复用的结构，初始化
@@ -659,7 +672,9 @@ void CSuperTcp::RunAsServer()
 										InitializeCriticalSection(&pContex->SendQueueLock);
 										pContex->QueueSend = new SEND_QUEUE;
 
+										EnterCriticalSection(&m_csCtxMap);
 										m_mapSocketToContex[sNewSock] = pContex;
+										LeaveCriticalSection(&m_csCtxMap);
 									}
 									//是复用的结构，仅释放发送队列
 									else
@@ -700,12 +715,13 @@ void CSuperTcp::RunAsServer()
 												cbShowMsg(szMsg);
 											}
 											ResetContex(pContex);
-											continue;
 										}
 									}
-
-									InterlockedIncrement(&m_lFreeSock);
-								}
+									else
+									{
+										InterlockedIncrement(&m_lFreeSock);
+									}									
+								}								
 							}
 						}
 						else
@@ -717,6 +733,8 @@ void CSuperTcp::RunAsServer()
 								int nFree = 0;
 								int nShutdown = 0;
 								int nConnected = 0;
+
+								EnterCriticalSection(&m_csCtxMap);
 								auto pairSocketContex = m_mapSocketToContex.begin();
 								while (pairSocketContex != m_mapSocketToContex.end())
 								{
@@ -775,6 +793,7 @@ void CSuperTcp::RunAsServer()
 									}
 
 								}
+								LeaveCriticalSection(&m_csCtxMap);
 								char szMsg[1024];
 								sprintf_s(szMsg, "current lFree=%d, free=%d,connected=%d,expired=%d", m_lFreeSock, nFree, nConnected, nShutdown);
 								if (cbShowMsg)
@@ -878,6 +897,7 @@ void CSuperTcp::RunAsClient()
 
 				BOOL bIsReUse = FALSE;
 				//socket可能会复用
+				EnterCriticalSection(&m_csCtxMap);
 				auto it = m_mapSocketToContex.find(sNewSock);
 				if (it != m_mapSocketToContex.end())
 				{
@@ -887,11 +907,13 @@ void CSuperTcp::RunAsClient()
 				else
 				{
 					pContex = new PER_IO_CONTEXT;
-					if (!pContex)
-					{
-						closesocket(sNewSock);
-						break;
-					}
+				}
+				LeaveCriticalSection(&m_csCtxMap);
+
+				if (!pContex)
+				{
+					closesocket(sNewSock);
+					continue;
 				}
 
 				//不是复用的结构，初始化
@@ -901,7 +923,9 @@ void CSuperTcp::RunAsClient()
 					InitializeCriticalSection(&pContex->SendQueueLock);
 					pContex->QueueSend = new SEND_QUEUE;
 
+					EnterCriticalSection(&m_csCtxMap);
 					m_mapSocketToContex[sNewSock] = pContex;
+					LeaveCriticalSection(&m_csCtxMap);
 				}
 				//是复用的结构，仅释放发送队列
 				else
@@ -971,6 +995,7 @@ void CSuperTcp::RunAsClient()
 					int nShutdown = 0;
 					int nConnected = 0;
 					int nValid = 0;
+					EnterCriticalSection(&m_csCtxMap);
 					auto pairSocketContex = m_mapSocketToContex.begin();
 					while (pairSocketContex != m_mapSocketToContex.end())
 					{
@@ -1031,6 +1056,8 @@ void CSuperTcp::RunAsClient()
 						}
 
 					}
+
+					LeaveCriticalSection(&m_csCtxMap);
 
 					char szMsg[1024];
 					sprintf_s(szMsg, "current  Connecting=%d,Connected=%d,expired=%d", nFree, nConnected, nShutdown);
@@ -1318,6 +1345,7 @@ void CSuperTcp::RunAsScaner()
 
 				BOOL bIsReUse = FALSE;
 				//socket可能会复用
+				EnterCriticalSection(&m_csCtxMap);
 				auto it = m_mapSocketToContex.find(sNewSock);
 				if (it != m_mapSocketToContex.end())
 				{
@@ -1327,11 +1355,15 @@ void CSuperTcp::RunAsScaner()
 				else
 				{
 					pContex = new PER_IO_CONTEXT;
-					if (!pContex)
-					{
-						closesocket(sNewSock);
-						break;
-					}
+				}
+
+				LeaveCriticalSection(&m_csCtxMap);
+				
+
+				if (!pContex)
+				{
+					closesocket(sNewSock);
+					continue;
 				}
 
 				//不是复用的结构，初始化
@@ -1341,7 +1373,9 @@ void CSuperTcp::RunAsScaner()
 					InitializeCriticalSection(&pContex->SendQueueLock);
 					pContex->QueueSend = new SEND_QUEUE;
 
+					EnterCriticalSection(&m_csCtxMap);
 					m_mapSocketToContex[sNewSock] = pContex;
+					LeaveCriticalSection(&m_csCtxMap);
 				}
 				//是复用的结构，仅释放发送队列
 				else
@@ -1412,6 +1446,7 @@ void CSuperTcp::RunAsScaner()
 			int nShutdown = 0;
 			int nConnected = 0;
 			int nValid = 0;
+			EnterCriticalSection(&m_csCtxMap);
 			auto pairSocketContex = m_mapSocketToContex.begin();
 			while (pairSocketContex != m_mapSocketToContex.end())
 			{
@@ -1472,6 +1507,7 @@ void CSuperTcp::RunAsScaner()
 				}
 
 			}
+			LeaveCriticalSection(&m_csCtxMap);
 
 			char szMsg[1024];			
 			if (cbShowMsg)
@@ -1953,8 +1989,10 @@ unsigned short CSuperTcp::BindSocket(SOCKET s)
 
 BOOL CSuperTcp::SendTcpData(SOCKET sSocket, DWORD dwLen, char* pData)
 {
+	int nRet = SOCKET_ERROR;
 	if (sSocket != INVALID_SOCKET && dwLen &&pData)
 	{
+		EnterCriticalSection(&m_csCtxMap);
 		auto it = m_mapSocketToContex.find(sSocket);
 
 		if (it != m_mapSocketToContex.end())
@@ -2010,19 +2048,20 @@ BOOL CSuperTcp::SendTcpData(SOCKET sSocket, DWORD dwLen, char* pData)
 					DWORD dwBytes=0;
 					DWORD dwFlag = 0;
 					//ZeroMemory(&pContex->SendOverLapped.Overlapped, sizeof(pContex->SendOverLapped.Overlapped));
-					int nRet = WSASend(pContex->SockCtx.Socket, &pContex->BuffSend, 1, &dwBytes, dwFlag, &pContex->Overlapped1.Overlapped, nullptr);
-	
-					return nRet!=SOCKET_ERROR;
+					nRet = WSASend(pContex->SockCtx.Socket, &pContex->BuffSend, 1, &dwBytes, dwFlag, &pContex->Overlapped1.Overlapped, nullptr);					
 				}
 			}
 		}		
+
+		LeaveCriticalSection(&m_csCtxMap);
 	}
 
-	return FALSE;
+	return nRet != SOCKET_ERROR;
 }
 
 void CSuperTcp::KillSocket(SOCKET sSocket)
 {
+	EnterCriticalSection(&m_csCtxMap);
 	auto it = m_mapSocketToContex.find(sSocket);
 	if (it!=m_mapSocketToContex.end())
 	{
@@ -2036,6 +2075,7 @@ void CSuperTcp::KillSocket(SOCKET sSocket)
 			}
 		}
 	}
+	LeaveCriticalSection(&m_csCtxMap);
 }
 
 

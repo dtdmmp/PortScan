@@ -1,6 +1,7 @@
 
 // PortScanDlg.h : Í·ÎÄ¼þ
 //
+#include <list>
 
 #pragma once
 #include "afxcmn.h"
@@ -61,7 +62,8 @@ public:
 	virtual BOOL PreTranslateMessage(MSG* pMsg);
 
 	std::map<CString, int> m_mapAddress;
-	std::vector<std::shared_ptr<char>> m_pRecvDataList;
+	std::list<std::shared_ptr<char>> m_pRecvDataList;
+	CRITICAL_SECTION m_csDataList;
 
 	CString m_strLog;
 
@@ -87,4 +89,5 @@ public:
 	afx_msg void OnMnOpenWithTelnet();
 	afx_msg void OnMnOpenWithFtp();
 	afx_msg void OnMnOpenWithMstsc();
+	afx_msg void OnDestroy();
 };

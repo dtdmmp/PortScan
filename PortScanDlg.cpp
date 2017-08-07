@@ -86,6 +86,7 @@ BEGIN_MESSAGE_MAP(CPortScanDlg, CDialogEx)
 	ON_COMMAND(ID_OPEN_OPENWITHTELNET, &CPortScanDlg::OnMnOpenWithTelnet)
 	ON_COMMAND(ID_OPEN_OPENWITHFTP, &CPortScanDlg::OnMnOpenWithFtp)
 	ON_COMMAND(ID_OPEN_OPENWITHMSTSC, &CPortScanDlg::OnMnOpenWithMstsc)
+	ON_WM_DESTROY()
 END_MESSAGE_MAP()
 
 
@@ -122,6 +123,7 @@ BOOL CPortScanDlg::OnInitDialog()
 
 	// TODO: 在此添加额外的初始化代码
 	m_pDlg = this;
+	InitializeCriticalSection(&m_csDataList);
 
 	m_ipAddrFrom.SetAddress(61,219,0,1);
 	m_ipAddrTo.SetAddress(61,219,254,254);
@@ -225,8 +227,6 @@ BOOL CPortScanDlg::PreTranslateMessage(MSG* pMsg)
 	if (pMsg->message == WM_KEYDOWN && pMsg->wParam == VK_ESCAPE)
 		return TRUE;
 	return CDialogEx::PreTranslateMessage(pMsg);
-
-	return CDialogEx::PreTranslateMessage(pMsg);
 }
 
 void CPortScanDlg::OnConnect(SOCKET sSocket, const SOCK_CONTEXT& Context)
@@ -294,7 +294,9 @@ void CPortScanDlg::OnRecvComplete(SOCKET sSocket, DWORD dwLen, char* pData, cons
 
 				std::shared_ptr<char> p=nullptr;
 				p.reset(pBuff);
+				EnterCriticalSection(&m_pDlg->m_csDataList);
 				m_pDlg->m_pRecvDataList.push_back(p);
+				LeaveCriticalSection(&m_pDlg->m_csDataList);
 				m_pDlg->m_lstResult.SetItemData(it->second, (DWORD_PTR)pBuff);
 
 				char* pTilte = StrStrIA(pData, "<title>");
@@ -523,6 +525,8 @@ void CPortScanDlg::ResetList()
 
 	decltype(m_pRecvDataList) tmpVec;
 	m_pRecvDataList.swap(tmpVec);	
+
+	//m_pDlg->m_pRecvDataList.reserve(10000);
 }
 
 
@@ -659,4 +663,13 @@ void CPortScanDlg::OnMnOpenWithMstsc()
 			ShellExecute(NULL, NULL, _T("mstsc.exe"), strCmdLine, NULL, SW_SHOWNORMAL);
 		}
 	}
+}
+
+
+void CPortScanDlg::OnDestroy()
+{
+	CDialogEx::OnDestroy();
+
+	DeleteCriticalSection(&m_csDataList);
+	// TODO: 在此处添加消息处理程序代码
 }

@@ -190,6 +190,7 @@ protected:
 
 	//所有socket及其数据的map,增删都在主线程中完成，不需要锁
 	std::map<SOCKET, PER_IO_CONTEXT*> m_mapSocketToContex;
+	CRITICAL_SECTION m_csCtxMap;
 
 	pfnOnConnect cbOnConnect= nullptr;
 	pfnOnRecvComplete cbOnRecvComplete=nullptr;
