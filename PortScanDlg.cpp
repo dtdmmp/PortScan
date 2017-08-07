@@ -87,6 +87,7 @@ BEGIN_MESSAGE_MAP(CPortScanDlg, CDialogEx)
 	ON_COMMAND(ID_OPEN_OPENWITHFTP, &CPortScanDlg::OnMnOpenWithFtp)
 	ON_COMMAND(ID_OPEN_OPENWITHMSTSC, &CPortScanDlg::OnMnOpenWithMstsc)
 	ON_WM_DESTROY()
+	ON_COMMAND(ID_OPEN_SAVE, &CPortScanDlg::OnMnSave)
 END_MESSAGE_MAP()
 
 
@@ -272,6 +273,7 @@ void CPortScanDlg::OnRecvComplete(SOCKET sSocket, DWORD dwLen, char* pData, cons
 			Context.RemoteAddr.sin_addr.S_un.S_un_b.s_b4,
 			ntohs(Context.RemoteAddr.sin_port));
 	
+		EnterCriticalSection(&g_csResult);
 		auto it = m_pDlg->m_mapAddress.find(strResult);
 		if (it!=m_pDlg->m_mapAddress.end())
 		{
@@ -336,50 +338,10 @@ void CPortScanDlg::OnRecvComplete(SOCKET sSocket, DWORD dwLen, char* pData, cons
 						}
 					}
 				}
-
-			}
-
-
-			//std::shared_ptr<char> p(new char[dwLen + 1]);
-			//if (p)
-			//{
-			//	memcpy(p.get(), pData, dwLen);
-			//	(p.get())[dwLen] = 0x00;
-			//	m_pDlg->m_pRecvDataList.push_back(p);
-			//	m_pDlg->m_lstResult.SetItemData(it->second, (DWORD_PTR)(p.get()));
-
-			//	char* pTilte = StrStrIA(pData, "<title>");
-			//	if (pTilte)
-			//	{
-			//		pTilte += strlen("<title>");
-			//		CStringA strTitle;
-			//		for (int i = 0; i < 256; i++)
-			//		{
-			//			if (*pTilte == '<')
-			//			{
-			//				break;
-			//			}
-			//			else
-			//			{
-			//				strTitle += *pTilte++;
-			//			}
-			//		}
-
-			//		if (strTitle.GetLength())
-			//		{
-			//			if (StrStrIA(pData, "utf-8"))
-			//			{
-			//				m_pDlg->m_lstResult.SetItemText(it->second, 1, CW2T(CA2W(strTitle, CP_UTF8)).m_psz);
-			//			}
-			//			else
-			//			{
-			//				m_pDlg->m_lstResult.SetItemText(it->second, 1, CW2T(CA2W(strTitle)).m_psz);
-			//			}
-
-			//		}
-			//	}
-			//}		
+			}	
 		}
+
+		LeaveCriticalSection(&g_csResult);
 	}
 
 	m_pDlg->m_super.KillSocket(sSocket);
@@ -672,4 +634,45 @@ void CPortScanDlg::OnDestroy()
 
 	DeleteCriticalSection(&m_csDataList);
 	// TODO: 在此处添加消息处理程序代码
+}
+
+
+void CPortScanDlg::OnMnSave()
+{
+	CFileDialog fd(FALSE, _T("txt"), _T("result"), OFN_OVERWRITEPROMPT | OFN_FORCESHOWHIDDEN, _T("文本文件(*.txt)|*.txt|所有文件(*.*)|*.*||"), nullptr, 0);
+	if (fd.DoModal() == IDOK)
+	{
+		HANDLE hFile = CreateFile(fd.GetPathName(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+		if (hFile != INVALID_HANDLE_VALUE)
+		{
+			//write unicode tag 0xFFFE
+			unsigned char tag[2] = { 0xFF,0xFE };
+			DWORD dwBytesWritten = 0;
+			WriteFile(hFile, tag, 2, &dwBytesWritten, 0);
+
+			for (int i = 0; i < m_lstResult.GetItemCount();i++)
+			{
+				CString strText1, strText2, strText;
+				strText1 = m_lstResult.GetItemText(i, 0);
+				strText1.Trim();
+				strText2 = m_lstResult.GetItemText(i, 1);
+				strText2.TrimLeft();
+				
+				while (strText1.GetLength()<22)
+				{
+					strText1 += _T(" ");
+				}
+
+				strText.Format(_T("%s#%s\r\n"), strText1,strText2);
+
+				if (strText.GetLength())
+				{
+					CStringW strData = CT2W(strText).m_psz;
+					WriteFile(hFile, strData.GetBuffer(), strData.GetLength()*sizeof(wchar_t), &dwBytesWritten, nullptr);
+				}
+			}
+
+			CloseHandle(hFile);
+		}
+	}
 }

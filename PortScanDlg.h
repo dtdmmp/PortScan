@@ -90,4 +90,5 @@ public:
 	afx_msg void OnMnOpenWithFtp();
 	afx_msg void OnMnOpenWithMstsc();
 	afx_msg void OnDestroy();
+	afx_msg void OnMnSave();
 };
