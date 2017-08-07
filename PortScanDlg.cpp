@@ -81,6 +81,11 @@ BEGIN_MESSAGE_MAP(CPortScanDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON1, &CPortScanDlg::OnBnClickedButton1)
 	ON_BN_CLICKED(IDC_BUTTON2, &CPortScanDlg::OnBnClickedButton2)
 	ON_NOTIFY(NM_DBLCLK, IDC_LIST2, &CPortScanDlg::OnNMDblclkList2)
+	ON_NOTIFY(NM_RCLICK, IDC_LIST2, &CPortScanDlg::OnNMRClickList2)
+	ON_COMMAND(ID_OPEN_OPENWITHIEI, &CPortScanDlg::OnMnOpenWithIE)
+	ON_COMMAND(ID_OPEN_OPENWITHTELNET, &CPortScanDlg::OnMnOpenWithTelnet)
+	ON_COMMAND(ID_OPEN_OPENWITHFTP, &CPortScanDlg::OnMnOpenWithFtp)
+	ON_COMMAND(ID_OPEN_OPENWITHMSTSC, &CPortScanDlg::OnMnOpenWithMstsc)
 END_MESSAGE_MAP()
 
 
@@ -122,7 +127,7 @@ BOOL CPortScanDlg::OnInitDialog()
 	m_ipAddrTo.SetAddress(61,219,254,254);
 	m_ipAddrLocal.SetAddress(0,0,0,0);
 	//m_editPortRange.SetWindowText(_T("1-65535"));
-	m_editPortRange.SetWindowText(_T("80,3389,8080,8888"));;
+	m_editPortRange.SetWindowText(_T("21,23,80,3389,8080,8888"));;
 	m_editBurstCount.SetWindowText(_T("50000"));
 	m_chkSendData.SetCheck(1);
 	m_editSendText.SetWindowText(CA2T(g_szGet).m_psz);
@@ -270,22 +275,36 @@ void CPortScanDlg::OnRecvComplete(SOCKET sSocket, DWORD dwLen, char* pData, cons
 		auto it = m_pDlg->m_mapAddress.find(strResult);
 		if (it!=m_pDlg->m_mapAddress.end())
 		{
-			std::shared_ptr<char> p (new char[dwLen+1]);
-			if (p)
+			char* pBuff = new char[dwLen + 1024];
+			if (pBuff)
 			{
-				memcpy(p.get(), pData, dwLen);
-				(p.get())[dwLen] = 0x00;
+				sprintf_s(pBuff,dwLen+1024, "data from %d.%d.%d.%d:%d bytes=%u\r\n", 
+					Context.RemoteAddr.sin_addr.S_un.S_un_b.s_b1,
+					Context.RemoteAddr.sin_addr.S_un.S_un_b.s_b2,
+					Context.RemoteAddr.sin_addr.S_un.S_un_b.s_b3,
+					Context.RemoteAddr.sin_addr.S_un.S_un_b.s_b4,
+					ntohs(Context.RemoteAddr.sin_port),
+					dwLen);
+
+				size_t nLen = strlen(pBuff);
+
+				memcpy(pBuff + nLen, pData,dwLen );
+
+				pBuff[nLen + dwLen] = 0x00;
+
+				std::shared_ptr<char> p=nullptr;
+				p.reset(pBuff);
 				m_pDlg->m_pRecvDataList.push_back(p);
-				m_pDlg->m_lstResult.SetItemData(it->second, (DWORD_PTR)(p.get()));
-	
+				m_pDlg->m_lstResult.SetItemData(it->second, (DWORD_PTR)pBuff);
+
 				char* pTilte = StrStrIA(pData, "<title>");
 				if (pTilte)
 				{
 					pTilte += strlen("<title>");
 					CStringA strTitle;
-					for (int i = 0; i < 256;i++)
+					for (int i = 0; i < 256; i++)
 					{
-						if (*pTilte=='<')
+						if (*pTilte == '<')
 						{
 							break;
 						}
@@ -297,19 +316,67 @@ void CPortScanDlg::OnRecvComplete(SOCKET sSocket, DWORD dwLen, char* pData, cons
 
 					if (strTitle.GetLength())
 					{
-						if (StrStrIA(pData,"utf-8"))
+						if (StrStrIA(pData, "utf-8"))
 						{
 							m_pDlg->m_lstResult.SetItemText(it->second, 1, CW2T(CA2W(strTitle, CP_UTF8)).m_psz);
+						}
+						else if(StrStrIA(pData, "gb2312"))
+						{
+							m_pDlg->m_lstResult.SetItemText(it->second, 1, CW2T(CA2W(strTitle, 936)).m_psz);
+						}
+						else if (StrStrIA(pData, "big5"))
+						{
+							m_pDlg->m_lstResult.SetItemText(it->second, 1, CW2T(CA2W(strTitle, 950)).m_psz);
 						}
 						else
 						{
 							m_pDlg->m_lstResult.SetItemText(it->second, 1, CW2T(CA2W(strTitle)).m_psz);
 						}
-						
 					}
 				}
 
-			}		
+			}
+
+
+			//std::shared_ptr<char> p(new char[dwLen + 1]);
+			//if (p)
+			//{
+			//	memcpy(p.get(), pData, dwLen);
+			//	(p.get())[dwLen] = 0x00;
+			//	m_pDlg->m_pRecvDataList.push_back(p);
+			//	m_pDlg->m_lstResult.SetItemData(it->second, (DWORD_PTR)(p.get()));
+
+			//	char* pTilte = StrStrIA(pData, "<title>");
+			//	if (pTilte)
+			//	{
+			//		pTilte += strlen("<title>");
+			//		CStringA strTitle;
+			//		for (int i = 0; i < 256; i++)
+			//		{
+			//			if (*pTilte == '<')
+			//			{
+			//				break;
+			//			}
+			//			else
+			//			{
+			//				strTitle += *pTilte++;
+			//			}
+			//		}
+
+			//		if (strTitle.GetLength())
+			//		{
+			//			if (StrStrIA(pData, "utf-8"))
+			//			{
+			//				m_pDlg->m_lstResult.SetItemText(it->second, 1, CW2T(CA2W(strTitle, CP_UTF8)).m_psz);
+			//			}
+			//			else
+			//			{
+			//				m_pDlg->m_lstResult.SetItemText(it->second, 1, CW2T(CA2W(strTitle)).m_psz);
+			//			}
+
+			//		}
+			//	}
+			//}		
 		}
 	}
 
@@ -478,6 +545,14 @@ void CPortScanDlg::OnNMDblclkList2(NMHDR *pNMHDR, LRESULT *pResult)
 				{
 					m_editRecvText.SetWindowText(CW2T(CA2W(p, CP_UTF8)).m_psz);
 				}
+				else if (StrStrIA(p, "gb2312"))
+				{
+					m_editRecvText.SetWindowText(CW2T(CA2W(p, 936)).m_psz);
+				}
+				else if (StrStrIA(p, "big5"))
+				{
+					m_editRecvText.SetWindowText(CW2T(CA2W(p, 950)).m_psz);
+				}
 				else
 				{
 					m_editRecvText.SetWindowText(CW2T(CA2W(p)).m_psz);
@@ -488,4 +563,100 @@ void CPortScanDlg::OnNMDblclkList2(NMHDR *pNMHDR, LRESULT *pResult)
 
 	// TODO: 在此添加控件通知处理程序代码
 	*pResult = 0;
+}
+
+
+
+
+void CPortScanDlg::OnNMRClickList2(NMHDR *pNMHDR, LRESULT *pResult)
+{
+	LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
+	// TODO: 在此添加控件通知处理程序代码
+	CPoint point;
+	GetCursorPos(&point);
+	CMenu menu;
+	if (menu.LoadMenu(IDR_MENU1))
+	{
+		CMenu * popup = menu.GetSubMenu(0);///0是指IDR_MENU1中第0列菜单。可以随便取一项菜单，编号0~n
+
+		if (m_lstResult.GetSelectedCount())
+		{
+			popup->TrackPopupMenu(TPM_LEFTALIGN, point.x, point.y, this);
+		}
+	}
+
+	*pResult = 0;
+}
+
+
+void CPortScanDlg::OnMnOpenWithIE()
+{
+	// TODO: 在此添加命令处理程序代码
+	POSITION pos = m_lstResult.GetFirstSelectedItemPosition();
+	if (pos)
+	{
+		int nItem = m_lstResult.GetNextSelectedItem(pos);
+		if (nItem != -1)
+		{
+			CString strText = m_lstResult.GetItemText(nItem, 0);
+			CString strUrl;
+			strUrl.Format(_T("http://%s"),strText);
+			ShellExecute(NULL, NULL, strUrl, NULL, NULL, SW_SHOWNORMAL);
+		}
+	}	
+}
+
+
+void CPortScanDlg::OnMnOpenWithTelnet()
+{
+	// TODO: 在此添加命令处理程序代码
+	POSITION pos = m_lstResult.GetFirstSelectedItemPosition();
+	if (pos)
+	{
+		int nItem = m_lstResult.GetNextSelectedItem(pos);
+		if (nItem != -1)
+		{
+			CString strText = m_lstResult.GetItemText(nItem, 0);
+			strText.Replace(':', ' ');
+			CString strCmdLine;
+			strCmdLine.Format(_T("/K %%windir%%\\sysnative\\telnet.exe %s"), strText);
+			ShellExecute(NULL, NULL, _T("cmd.exe"), strCmdLine, NULL, SW_SHOWNORMAL);
+		}
+	}
+}
+
+
+void CPortScanDlg::OnMnOpenWithFtp()
+{
+	// TODO: 在此添加命令处理程序代码
+	POSITION pos = m_lstResult.GetFirstSelectedItemPosition();
+	if (pos)
+	{
+		int nItem = m_lstResult.GetNextSelectedItem(pos);
+		if (nItem != -1)
+		{
+			CString strText = m_lstResult.GetItemText(nItem, 0);
+			CString strUrl;
+			strUrl.Format(_T("ftp://%s"), strText);
+			ShellExecute(NULL, NULL, strUrl, NULL, NULL, SW_SHOWNORMAL);
+		}
+	}
+}
+
+
+void CPortScanDlg::OnMnOpenWithMstsc()
+{
+	// TODO: 在此添加命令处理程序代码
+	POSITION pos = m_lstResult.GetFirstSelectedItemPosition();
+	if (pos)
+	{
+		int nItem = m_lstResult.GetNextSelectedItem(pos);
+		if (nItem != -1)
+		{
+			CString strText = m_lstResult.GetItemText(nItem, 0);
+			CString strCmdLine;
+			strCmdLine.Format(_T("/v:%s"), strText);
+			ShellExecute(NULL, NULL, _T("mstsc.exe"), strCmdLine, NULL, SW_SHOWNORMAL);
+		}
+	}
 }

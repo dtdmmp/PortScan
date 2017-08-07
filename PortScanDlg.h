@@ -82,4 +82,9 @@ public:
 
 	void ResetList();
 	afx_msg void OnNMDblclkList2(NMHDR *pNMHDR, LRESULT *pResult);
+	afx_msg void OnNMRClickList2(NMHDR *pNMHDR, LRESULT *pResult);
+	afx_msg void OnMnOpenWithIE();
+	afx_msg void OnMnOpenWithTelnet();
+	afx_msg void OnMnOpenWithFtp();
+	afx_msg void OnMnOpenWithMstsc();
 };
