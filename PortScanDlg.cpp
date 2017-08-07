@@ -118,16 +118,19 @@ BOOL CPortScanDlg::OnInitDialog()
 	// TODO: 在此添加额外的初始化代码
 	m_pDlg = this;
 
-	m_ipAddrFrom.SetAddress(192,168,0,1);
-	m_ipAddrTo.SetAddress(192,168,0,254);
+	m_ipAddrFrom.SetAddress(61,219,0,1);
+	m_ipAddrTo.SetAddress(61,219,254,254);
 	m_ipAddrLocal.SetAddress(0,0,0,0);
-	m_editPortRange.SetWindowText(_T("1-65535"));;
-	m_editBurstCount.SetWindowText(_T("30000"));
-	m_chkSendData.SetCheck(0);
+	//m_editPortRange.SetWindowText(_T("1-65535"));
+	m_editPortRange.SetWindowText(_T("80,3389,8080,8888"));;
+	m_editBurstCount.SetWindowText(_T("50000"));
+	m_chkSendData.SetCheck(1);
 	m_editSendText.SetWindowText(CA2T(g_szGet).m_psz);
 
-	m_lstResult.InsertColumn(0,_T("IPAddress:Port"), LVCFMT_LEFT,300);
 
+	m_lstResult.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_INFOTIP);
+	m_lstResult.InsertColumn(0, _T("IPAddress:Port"), LVCFMT_LEFT,200);
+	m_lstResult.InsertColumn(1, _T("Title"), LVCFMT_LEFT, 300);
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -230,11 +233,13 @@ void CPortScanDlg::OnConnect(SOCKET sSocket, const SOCK_CONTEXT& Context)
 		Context.RemoteAddr.sin_addr.S_un.S_un_b.s_b3,
 		Context.RemoteAddr.sin_addr.S_un.S_un_b.s_b4,
 		ntohs(Context.RemoteAddr.sin_port));
+	EnterCriticalSection(&g_csResult);
 	int nItem = m_pDlg->m_lstResult.InsertItem(m_pDlg->m_lstResult.GetItemCount(), strResult, 0);
 	if (nItem!=-1)
 	{
 		m_pDlg->m_mapAddress[strResult] = nItem;
 	}
+	LeaveCriticalSection(&g_csResult);
 
 	if (m_pDlg->m_chkSendData.GetCheck())
 	{
@@ -252,25 +257,60 @@ void CPortScanDlg::OnConnect(SOCKET sSocket, const SOCK_CONTEXT& Context)
 
 void CPortScanDlg::OnRecvComplete(SOCKET sSocket, DWORD dwLen, char* pData, const SOCK_CONTEXT& Context)
 {
-	CString strResult;
-	strResult.Format(_T("%d.%d.%d.%d:%d"),
-		Context.RemoteAddr.sin_addr.S_un.S_un_b.s_b1,
-		Context.RemoteAddr.sin_addr.S_un.S_un_b.s_b2,
-		Context.RemoteAddr.sin_addr.S_un.S_un_b.s_b3,
-		Context.RemoteAddr.sin_addr.S_un.S_un_b.s_b4,
-		ntohs(Context.RemoteAddr.sin_port));
-
-	auto it = m_pDlg->m_mapAddress.find(strResult);
-	if (it!=m_pDlg->m_mapAddress.end())
+	if (pData)
 	{
-		std::shared_ptr<char> p (new char[dwLen+1]);
-		if (p)
+		CString strResult;
+		strResult.Format(_T("%d.%d.%d.%d:%d"),
+			Context.RemoteAddr.sin_addr.S_un.S_un_b.s_b1,
+			Context.RemoteAddr.sin_addr.S_un.S_un_b.s_b2,
+			Context.RemoteAddr.sin_addr.S_un.S_un_b.s_b3,
+			Context.RemoteAddr.sin_addr.S_un.S_un_b.s_b4,
+			ntohs(Context.RemoteAddr.sin_port));
+	
+		auto it = m_pDlg->m_mapAddress.find(strResult);
+		if (it!=m_pDlg->m_mapAddress.end())
 		{
-			memcpy(p.get(), pData, dwLen);
-			(p.get())[dwLen] = 0x00;
-			m_pDlg->m_pRecvDataList.push_back(p);
-			m_pDlg->m_lstResult.SetItemData(it->second, (DWORD_PTR)(p.get()));
-		}		
+			std::shared_ptr<char> p (new char[dwLen+1]);
+			if (p)
+			{
+				memcpy(p.get(), pData, dwLen);
+				(p.get())[dwLen] = 0x00;
+				m_pDlg->m_pRecvDataList.push_back(p);
+				m_pDlg->m_lstResult.SetItemData(it->second, (DWORD_PTR)(p.get()));
+	
+				char* pTilte = StrStrIA(pData, "<title>");
+				if (pTilte)
+				{
+					pTilte += strlen("<title>");
+					CStringA strTitle;
+					for (int i = 0; i < 256;i++)
+					{
+						if (*pTilte=='<')
+						{
+							break;
+						}
+						else
+						{
+							strTitle += *pTilte++;
+						}
+					}
+
+					if (strTitle.GetLength())
+					{
+						if (StrStrIA(pData,"utf-8"))
+						{
+							m_pDlg->m_lstResult.SetItemText(it->second, 1, CW2T(CA2W(strTitle, CP_UTF8)).m_psz);
+						}
+						else
+						{
+							m_pDlg->m_lstResult.SetItemText(it->second, 1, CW2T(CA2W(strTitle)).m_psz);
+						}
+						
+					}
+				}
+
+			}		
+		}
 	}
 
 	m_pDlg->m_super.KillSocket(sSocket);
@@ -288,12 +328,27 @@ void CPortScanDlg::OnDisconnect(SOCKET sSocket, const SOCK_CONTEXT& Context)
 
 void CPortScanDlg::ScanComplete(void)
 {
-	m_pDlg->OnBnClickedButton2();
+	::PostMessage(m_pDlg->GetSafeHwnd(), WM_COMMAND, MAKEWPARAM(m_pDlg->m_btnStop.GetDlgCtrlID(),BN_CLICKED),(LPARAM)m_pDlg->m_btnStop.GetSafeHwnd());
+	//m_pDlg->OnBnClickedButton2();
+	//m_pDlg->m_btnStart.EnableWindow(TRUE);
 }
 
 
+void CPortScanDlg::OnSockMsg(const char* pszMsg)
+{
+	EnterCriticalSection(&g_csLog);
+	if (pszMsg)
+	{		
+		m_pDlg->m_strLog += CA2T(pszMsg).m_psz; 
+		m_pDlg->m_strLog += _T("\r\n");
+		m_pDlg->m_editRecvText.SetWindowText(m_pDlg->m_strLog);
+	}
+	LeaveCriticalSection(&g_csLog);
+}
+
 void CPortScanDlg::OnBnClickedButton1()
 {
+	m_super.Stop();
 	ResetList();
 	byte b1, b2, b3, b4;
 	CString strFromIP;
@@ -314,17 +369,18 @@ void CPortScanDlg::OnBnClickedButton1()
 
 	CString strPorts;
 	m_editPortRange.GetWindowText(strPorts);
+		
 
-	unsigned short uPortStart = 80;
-	unsigned short uPortStop = 81;
-	int nPos = strPorts.Find(_T('-'));
+	std::vector<unsigned short> vecPorts;
+	
+	int nPos = strPorts.Find(_T('-')); //连续端口
 	if (nPos!=-1)
 	{
 		CString str1 = strPorts.Left(nPos);
 		CString str2 = strPorts.Right(strPorts.GetLength() - nPos-1);
 
-		uPortStart = _ttoi(str1);
-		uPortStop = _ttoi(str2);
+		unsigned uPortStart = _ttoi(str1);
+		unsigned uPortStop = _ttoi(str2);
 
 		if (uPortStart==0 || uPortStop==0)
 		{
@@ -337,18 +393,33 @@ void CPortScanDlg::OnBnClickedButton1()
 			AfxMessageBox(_T("Invalid port range"));
 			return;
 		}
+
+		for (unsigned short uPort = uPortStart; uPort < uPortStop;uPort++)
+		{
+			vecPorts.push_back(uPort);
+		}
+	}
+	else //不连续端口
+	{
+		CString strGet;
+		int i = 0;
+		while (AfxExtractSubString(strGet,strPorts,i++,_T(',')))
+		{
+			vecPorts.push_back(_ttoi(strGet));
+		}
+
 	}
 
 	if (m_super.StartScaner(
+		std::move(vecPorts),
 		CPortScanDlg::OnConnect,
 		CPortScanDlg::OnDisconnect,
 		CPortScanDlg::OnRecvComplete,
 		CPortScanDlg::ScanComplete,
+		CPortScanDlg::OnSockMsg,
 		uCount,
 		CT2A(strFromIP).m_psz,
 		CT2A(strToIP).m_psz,
-		uPortStart,
-		uPortStop,
 		CT2A(strLocalIP).m_psz
 		))
 	{
@@ -403,7 +474,14 @@ void CPortScanDlg::OnNMDblclkList2(NMHDR *pNMHDR, LRESULT *pResult)
 			char* p = (char*)m_lstResult.GetItemData(nItem);
 			if (p)
 			{
-				m_editRecvText.SetWindowText(CW2T(CA2W(p,CP_UTF8)).m_psz);
+				if (StrStrIA(p, "utf-8"))
+				{
+					m_editRecvText.SetWindowText(CW2T(CA2W(p, CP_UTF8)).m_psz);
+				}
+				else
+				{
+					m_editRecvText.SetWindowText(CW2T(CA2W(p)).m_psz);
+				}				
 			}
 		}
 	}

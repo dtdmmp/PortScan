@@ -63,6 +63,8 @@ public:
 	std::map<CString, int> m_mapAddress;
 	std::vector<std::shared_ptr<char>> m_pRecvDataList;
 
+	CString m_strLog;
+
 private:
 	CSuperTcp m_super;
 
@@ -73,6 +75,7 @@ private:
 	static void OnSendComplete(SOCKET sSocket, DWORD dwLen, const SOCK_CONTEXT& Context);
 	static void OnDisconnect(SOCKET sSocket, const SOCK_CONTEXT& Context);
 	static void ScanComplete(void);
+	static void OnSockMsg(const char* pszMsg);
 public:
 	afx_msg void OnBnClickedButton1();
 	afx_msg void OnBnClickedButton2();

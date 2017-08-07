@@ -79,6 +79,7 @@ DWORD CSuperTcp::GetProcessorCoreCount()
 BOOL CSuperTcp::StartListen(pfnOnConnect OnConnect/*=nullptr*/, 
 	pfnOnDisconnect OnDisconnect/*=nullptr*/, 
 	pfnOnRecvComplete OnRecvComplete/*=nullptr*/, 
+	pfnShowMessage OnMsg/*=nullptr*/,
 	unsigned short uPort /*= 8086*/, 
 	const char* lpszIpAddr /*= "0.0.0.0"*/)
 {
@@ -93,6 +94,7 @@ BOOL CSuperTcp::StartListen(pfnOnConnect OnConnect/*=nullptr*/,
 	cbOnConnect = OnConnect;
 	cbOnDisconnect = OnDisconnect;
 	cbOnRecvComplete = OnRecvComplete;
+	cbShowMsg = OnMsg;
 
 	m_bWorkAsServer = TRUE;
 	if (m_bWorkAsServer)
@@ -202,6 +204,7 @@ BOOL CSuperTcp::StartListen(pfnOnConnect OnConnect/*=nullptr*/,
 BOOL CSuperTcp::StartConnect(pfnOnConnect OnConnect /*= nullptr*/, 
 	pfnOnDisconnect OnDisconnect /*= nullptr*/, 
 	pfnOnRecvComplete OnRecvComplete /*= nullptr*/, 
+	pfnShowMessage OnMsg/*=nullptr*/,
 	unsigned long uConnCount/*=10000*/, 
 	unsigned short uPort /*= 8086*/, 
 	const char* lpszIpAddr /*= "127.0.0.0"*/,
@@ -220,6 +223,7 @@ BOOL CSuperTcp::StartConnect(pfnOnConnect OnConnect /*= nullptr*/,
 	cbOnConnect = OnConnect;
 	cbOnDisconnect = OnDisconnect;
 	cbOnRecvComplete = OnRecvComplete;
+	cbShowMsg = OnMsg;
 
 	m_bWorkAsServer = FALSE;
 	m_strLocalAddr = lpszLocalIp;
@@ -322,15 +326,16 @@ BOOL CSuperTcp::StartConnect(pfnOnConnect OnConnect /*= nullptr*/,
 
 
 
-BOOL CSuperTcp::StartScaner(pfnOnConnect OnConnect /*= nullptr*/, /*连接成功回调 */ 
+BOOL CSuperTcp::StartScaner(
+	std::vector<unsigned short>&& PortList,   //端口列表
+	pfnOnConnect OnConnect /*= nullptr*/, /*连接成功回调 */ 
 	pfnOnDisconnect OnDisconnect /*= nullptr*/, /*连接关闭回调 */ 
 	pfnOnRecvComplete OnRecvComplete /*= nullptr*/, /*接收完成回调 */ 
 	pfnScanComplete OnScanComplete/*=nullptr*/, /*扫描完成回调 */ 
+	pfnShowMessage OnMsg/*=nullptr*/,
 	unsigned long uConnCount/*=10000*/, /*并发数 */ 
 	const char* lpszStartIp/*="127.0.0.1"*/, /*起始IP */ 
 	const char* lpszStopIp/*="127.0.0.1"*/, /*终止IP */ 
-	unsigned short uStartPort/*=1*/, /*起始端口 */ 
-	unsigned short uStopPort/*=65535*/, /*终止端口 */ 
 	const char* lpszLocalIp/*="127.0.0.1"*/)
 {
 	auto ClearHandle = [](HANDLE& h) {
@@ -347,6 +352,7 @@ BOOL CSuperTcp::StartScaner(pfnOnConnect OnConnect /*= nullptr*/, /*连接成功回调
 	cbOnDisconnect = OnDisconnect;
 	cbOnRecvComplete = OnRecvComplete;
 	cbOnScanComplete = OnScanComplete;
+	cbShowMsg = OnMsg;
 
 	m_bWorkAsServer = FALSE;
 	m_strLocalAddr = lpszLocalIp;
@@ -354,8 +360,12 @@ BOOL CSuperTcp::StartScaner(pfnOnConnect OnConnect /*= nullptr*/, /*连接成功回调
 
 	m_addrFrom.S_un.S_addr = inet_addr(lpszStartIp);
 	m_addrTo.S_un.S_addr = inet_addr(lpszStopIp);
-	m_uPortFrom = uStartPort;
-	m_uPortTo = uStopPort;
+	
+	m_vecPorts.swap(PortList);
+	if (m_vecPorts.size()==0)
+	{
+		return FALSE;
+	}
 
 	m_uConnCount = uConnCount;
 
@@ -683,7 +693,12 @@ void CSuperTcp::RunAsServer()
 										if (ERROR_IO_PENDING != GetLastError())
 										{
 											DWORD dwErr = GetLastError();
-											printf("AcceptEx with error code=%08x\n", dwErr);
+											char szMsg[1024];
+											sprintf_s(szMsg, "AcceptEx with error code=%d", dwErr);
+											if (cbShowMsg)
+											{
+												cbShowMsg(szMsg);
+											}
 											ResetContex(pContex);
 											continue;
 										}
@@ -760,8 +775,12 @@ void CSuperTcp::RunAsServer()
 									}
 
 								}
-
-								printf("current lFree=%d, free=%d,connected=%d,expired=%d\n", m_lFreeSock, nFree, nConnected, nShutdown);
+								char szMsg[1024];
+								sprintf_s(szMsg, "current lFree=%d, free=%d,connected=%d,expired=%d", m_lFreeSock, nFree, nConnected, nShutdown);
+								if (cbShowMsg)
+								{
+									cbShowMsg(szMsg);
+								}
 
 								//使用nFree修正m_lFreeSock
 								InterlockedExchange(&m_lFreeSock, nFree);
@@ -806,7 +825,10 @@ void CSuperTcp::RunAsClient()
 
 	if (m_pConnectEx == nullptr)
 	{
-		printf("Can not get ConnectEx pointer\n");
+		if (cbShowMsg)
+		{
+			cbShowMsg("Can not get ConnectEx pointer");
+		}
 		return;
 	}
 
@@ -822,7 +844,12 @@ void CSuperTcp::RunAsClient()
 				SOCKET sNewSock = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
 				if (sNewSock == INVALID_SOCKET)
 				{
-					printf("create new socket fail %d\n", WSAGetLastError());
+					char szMsg[1024];
+					sprintf_s(szMsg, "create new socket fail %d", WSAGetLastError());
+					if (cbShowMsg)
+					{
+						cbShowMsg(szMsg);
+					}
 					break;
 				}
 
@@ -837,7 +864,12 @@ void CSuperTcp::RunAsClient()
 				unsigned short uPortBind = BindSocket(sNewSock);
 				if (uPortBind==-1)
 				{
-					printf("bind new socket fail %d\n", WSAGetLastError());
+					char szMsg[1024];
+					sprintf_s(szMsg, "bind new socket fail %d", WSAGetLastError());
+					if (cbShowMsg)
+					{
+						cbShowMsg(szMsg);
+					}
 					closesocket(sNewSock);
 					continue;
 				}
@@ -915,7 +947,12 @@ void CSuperTcp::RunAsClient()
 					if (ERROR_IO_PENDING != GetLastError())
 					{
 						DWORD dwErr = GetLastError();
-						printf("ConnectEx with error code=%d\n", dwErr);
+						char szMsg[1024];
+						sprintf_s(szMsg, "ConnectEx with error code=%d", dwErr);
+						if (cbShowMsg)
+						{
+							cbShowMsg(szMsg);
+						}
 						ResetContex(pContex);
 						continue;
 					}
@@ -995,7 +1032,13 @@ void CSuperTcp::RunAsClient()
 
 					}
 
-					printf("current  Connecting=%d,Connected=%d,expired=%d\n", nFree, nConnected, nShutdown);
+					char szMsg[1024];
+					sprintf_s(szMsg, "current  Connecting=%d,Connected=%d,expired=%d", nFree, nConnected, nShutdown);
+					if (cbShowMsg)
+					{
+						cbShowMsg(szMsg);
+					}
+
 
 					//使用nValid修正m_lValidSock，凡是初始化或者成功连接状态的socket都是有效的
 					InterlockedExchange(&m_lValidSock, nValid);
@@ -1013,6 +1056,14 @@ void CSuperTcp::RunAsClient()
 
 void CSuperTcp::RunAsScaner()
 {
+	auto  MySleep=[this](const DWORD dwTime) {
+		int nCount = dwTime / 100;
+		for (int i = 0; i <= nCount && m_bRunning; i++)
+		{
+			Sleep(100);
+		}
+	};
+
 	DWORD dwBytesRet;
 	//随便弄个socket,因为WSAIoctl要用到
 	SOCKET s = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
@@ -1035,7 +1086,10 @@ void CSuperTcp::RunAsScaner()
 
 	if (m_pConnectEx == nullptr)
 	{
-		printf("Can not get ConnectEx pointer\n");
+		if (cbShowMsg)
+		{
+			cbShowMsg("Can not get ConnectEx pointer");
+		}
 		return;
 	}
 
@@ -1137,6 +1191,10 @@ void CSuperTcp::RunAsScaner()
 		}
 	};
 
+	int nCount = 0;
+	InterlockedExchange(&m_lBurstSock, 0);
+
+	m_bComplete = FALSE;
 	DWORD dwTick = GetTickCount();
 	//第一层循环:IP
 	struct in_addr adCurrent;
@@ -1145,7 +1203,7 @@ void CSuperTcp::RunAsScaner()
 	{
 		if (!CheckIP(adCurrent))
 		{
-			printf("Invalid ip address %d.%d.%d.%d\n",adCurrent.S_un.S_un_b.s_b1,adCurrent.S_un.S_un_b.s_b2,adCurrent.S_un.S_un_b.s_b3,adCurrent.S_un.S_un_b.s_b4);
+			m_bComplete = TRUE;
 			if (cbOnScanComplete)
 			{
 				cbOnScanComplete();
@@ -1154,40 +1212,104 @@ void CSuperTcp::RunAsScaner()
 		}
 
 		//printf("processing %d.%d.%d.%d...\n", adCurrent.S_un.S_un_b.s_b1, adCurrent.S_un.S_un_b.s_b2, adCurrent.S_un.S_un_b.s_b3, adCurrent.S_un.S_un_b.s_b4);
+		//if (cbShowMsg)
+		//{
+		//	char szMsg[1024];
+		//	sprintf_s(szMsg, "processing %d.%d.%d.%d...", adCurrent.S_un.S_un_b.s_b1, adCurrent.S_un.S_un_b.s_b2, adCurrent.S_un.S_un_b.s_b3, adCurrent.S_un.S_un_b.s_b4);
+		//	cbShowMsg(szMsg);
+		//}
 
 		//第二层循环:端口
-		unsigned short uCurrentPort = m_uPortFrom;
-		do 
-		{			
-			if (uCurrentPort==0)
+		for (unsigned short uCurrentPort:m_vecPorts)
+		{
+			while (m_lBurstSock >= (long)m_uConnCount && m_bRunning)
 			{
-				break;
-			}
+				MySleep(1000);
+			} 
 
 			//检查是否已投递足够的连接
-			if (m_lBurstSock < (long)m_uConnCount && m_mapSocketToContex.size() < MAX_SOCKET_COUNT)
+			if (m_lBurstSock < (long)m_uConnCount && m_mapSocketToContex.size() < MAX_SOCKET_COUNT && !m_bComplete)
 			{
-				SOCKET sNewSock = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
+				SOCKET sNewSock = INVALID_SOCKET;
+
+				//create the socket
+				//we try some times to create socket
+				const int nTries = 10;
+				for (int i = 0; i < nTries;i++)
+				{
+					sNewSock= WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
+					if (sNewSock!=INVALID_SOCKET)
+					{
+						break;
+					}
+					else
+					{
+						MySleep(1000);
+					}
+				}
+					
 				if (sNewSock == INVALID_SOCKET)
 				{
-					printf("create new socket fail %d\n", WSAGetLastError());
-					break;
+					char szMsg[1024];
+					sprintf_s(szMsg, "can not create socket for 10 times");
+					if (cbShowMsg)
+					{
+						cbShowMsg(szMsg);
+					}
+					continue;
 				}
 
-				//绑定至完成端口
-				if (!CreateIoCompletionPort((HANDLE)sNewSock, m_hIOCP, sNewSock, 0))
+				HANDLE h = nullptr;
+				for (int i = 0; i < nTries;i++)
 				{
-					DWORD oerr = GetLastError();
+					h = CreateIoCompletionPort((HANDLE)sNewSock, m_hIOCP, sNewSock, 0);
+					if (h)
+					{
+						break;
+					}
+					else
+					{
+						MySleep(1000);
+					}
+				}
+
+				if (!h)
+				{
+					DWORD dwErr = GetLastError();
+					char szMsg[1024];
+					sprintf_s(szMsg, "can not bind socket to completion port with error %d for 10 times.",dwErr);
+					if (cbShowMsg)
+					{
+						cbShowMsg(szMsg);
+					}
 
 					closesocket(sNewSock);
 					continue;
 				}
 
 				//调用bind
-				unsigned short uPortBind = BindSocket(sNewSock);
-				if (uPortBind==-1)
+				unsigned short uPortBind = -1;
+				for (int i = 0; i < nTries;i++)
 				{
-					printf("bind new socket fail %d\n", WSAGetLastError());
+					uPortBind = BindSocket(sNewSock);
+					if (uPortBind!=-1)
+					{
+						break;
+					}
+					else
+					{
+						MySleep(1000);
+					}
+				}
+
+				if (uPortBind == -1)
+				{
+					char szMsg[1024];
+					sprintf_s(szMsg, "bind new socket fail %d", WSAGetLastError());
+					if (cbShowMsg)
+					{
+						cbShowMsg(szMsg);
+					}
 					closesocket(sNewSock);
 					continue;
 				}
@@ -1249,10 +1371,10 @@ void CSuperTcp::RunAsScaner()
 				sa.sin_port = htons(uCurrentPort);
 				memcpy(&pContex->SockCtx.RemoteAddr, &sa, sizeof(pContex->SockCtx.RemoteAddr));
 
-				pContex->SockCtx.LocalAddr.sin_addr.S_un.S_addr= inet_addr(m_strLocalAddr.c_str());
+				pContex->SockCtx.LocalAddr.sin_addr.S_un.S_addr = inet_addr(m_strLocalAddr.c_str());
 				pContex->SockCtx.LocalAddr.sin_port = uPortBind;
 
-			
+
 				dwBytesRet = 0;
 				BOOL bRet = m_pConnectEx(sNewSock,
 					(struct sockaddr *)&sa,
@@ -1266,123 +1388,126 @@ void CSuperTcp::RunAsScaner()
 					if (ERROR_IO_PENDING != GetLastError())
 					{
 						DWORD dwErr = GetLastError();
-						printf("ConnectEx with error code=%d\n", dwErr);
+						char szMsg[1024];
+						sprintf_s(szMsg, "ConnectEx with error code=%d", dwErr);
+						if (cbShowMsg)
+						{
+							cbShowMsg(szMsg);
+						}
 						ResetContex(pContex);
 						continue;
 					}
 				}
+				
 				InterlockedIncrement(&m_lBurstSock);
 
 			}
-			else
+		}
+
+		//空闲的时候统计性能
+		DWORD dwNewTick = GetTickCount();
+		if (dwNewTick - dwTick > SCAN_CYCLE)
+		{
+			int nFree = 0;
+			int nShutdown = 0;
+			int nConnected = 0;
+			int nValid = 0;
+			auto pairSocketContex = m_mapSocketToContex.begin();
+			while (pairSocketContex != m_mapSocketToContex.end())
 			{
-				//空闲的时候统计性能
-				DWORD dwNewTick = GetTickCount();
-				if (dwNewTick - dwTick > SCAN_CYCLE)
+				SOCKET s = pairSocketContex->first;
+				PER_IO_CONTEXT* pContex = pairSocketContex->second;
+
+				if (pContex)
 				{
-					int nFree = 0;
-					int nShutdown = 0;
-					int nConnected = 0;
-					int nValid = 0;
-					auto pairSocketContex = m_mapSocketToContex.begin();
-					while (pairSocketContex != m_mapSocketToContex.end())
+					if (pContex->SockCtx.Status == ss_down)
 					{
-						SOCKET s = pairSocketContex->first;
-						PER_IO_CONTEXT* pContex = pairSocketContex->second;
+						nShutdown++;
 
-						if (pContex)
+						m_mapSocketToContex.erase(pairSocketContex++);
+
+						if (pContex->SockCtx.Socket != INVALID_SOCKET)
 						{
-							if (pContex->SockCtx.Status == ss_down)
-							{
-								nShutdown++;
-
-								m_mapSocketToContex.erase(pairSocketContex++);
-
-								if (pContex->SockCtx.Socket != INVALID_SOCKET)
-								{
-									closesocket(pContex->SockCtx.Socket);
-								}
-
-								EnterCriticalSection(&pContex->SendQueueLock);
-								if (pContex->QueueSend)
-								{
-									while (pContex->QueueSend->size())
-									{
-										WSABUF* pBuff = pContex->QueueSend->front();
-										if (pBuff)
-										{
-											delete[](char*)pBuff;
-										}
-										pContex->QueueSend->pop();
-									}
-
-									delete pContex->QueueSend;
-									pContex->QueueSend = nullptr;
-								}
-								LeaveCriticalSection(&pContex->SendQueueLock);
-
-								DeleteCriticalSection(&pContex->SendQueueLock);
-
-								delete pContex;
-							}
-							else
-							{
-								if (pContex->SockCtx.Status == ss_init)
-								{
-									nFree++;
-									nValid++;
-								}
-
-								if (pContex->SockCtx.Status == ss_buzy)
-								{
-									nConnected++;
-									nValid++;
-								}
-
-								pairSocketContex++;
-							}
+							closesocket(pContex->SockCtx.Socket);
 						}
 
+						EnterCriticalSection(&pContex->SendQueueLock);
+						if (pContex->QueueSend)
+						{
+							while (pContex->QueueSend->size())
+							{
+								WSABUF* pBuff = pContex->QueueSend->front();
+								if (pBuff)
+								{
+									delete[](char*)pBuff;
+								}
+								pContex->QueueSend->pop();
+							}
+
+							delete pContex->QueueSend;
+							pContex->QueueSend = nullptr;
+						}
+						LeaveCriticalSection(&pContex->SendQueueLock);
+
+						DeleteCriticalSection(&pContex->SendQueueLock);
+
+						delete pContex;
 					}
+					else
+					{
+						if (pContex->SockCtx.Status == ss_init)
+						{
+							nFree++;
+							nValid++;
+						}
 
-					printf("current  Connecting=%d,Connected=%d,expired=%d\n", nFree, nConnected, nShutdown);
+						if (pContex->SockCtx.Status == ss_buzy)
+						{
+							nConnected++;
+							nValid++;
+						}
 
-					//使用nValid修正m_lValidSock，凡是初始化或者成功连接状态的socket都是有效的
-					InterlockedExchange(&m_lBurstSock, nValid);
-
-					dwTick = GetTickCount();
+						pairSocketContex++;
+					}
 				}
-				else
+
+			}
+
+			char szMsg[1024];			
+			if (cbShowMsg)
+			{
+				sprintf_s(szMsg, "processing %d.%d.%d.%d...", adCurrent.S_un.S_un_b.s_b1, adCurrent.S_un.S_un_b.s_b2, adCurrent.S_un.S_un_b.s_b3, adCurrent.S_un.S_un_b.s_b4);
+				cbShowMsg(szMsg);
+				sprintf_s(szMsg, "current  Connecting=%d,Connected=%d,expired=%d", nFree, nConnected, nShutdown);
+				cbShowMsg(szMsg);
+			}
+
+			//使用nValid修正m_lValidSock，凡是初始化或者成功连接状态的socket都是有效的
+			InterlockedExchange(&m_lBurstSock, nValid);
+
+
+			if (m_bComplete)
+			{
+				if (cbOnScanComplete)
 				{
-					Sleep(100);
+					cbOnScanComplete();					
 				}
-			}
-
-
-			if (uCurrentPort<m_uPortTo)
-			{
-				uCurrentPort++;
-			}
-			else
-			{
 				break;
 			}
-			
-		} while (m_bRunning);
+
+			dwTick = GetTickCount();
+		}
 
 
-
-		if (CompareIP(adCurrent,m_addrTo)<0)
-		{
+		if (CompareIP(adCurrent, m_addrTo) < 0)
+		{			
 			IncreaseIP(adCurrent);
+			nCount++;
 		}
 		else
 		{
-			if (cbOnScanComplete)
-			{
-				cbOnScanComplete();
-			}
-			break;
+			m_bComplete = TRUE;
+			MySleep(1000);
 		}
 
 	} while (m_bRunning);
@@ -1449,6 +1574,7 @@ unsigned int __stdcall CSuperTcp::_WorkerThread(LPVOID lParam)
 
 void CSuperTcp::RunWorker()
 {
+	char szMsg[4096];
 	while (m_bRunning)
 	{
 		DWORD dwBytesTransferred = 0;
@@ -1486,16 +1612,16 @@ void CSuperTcp::RunWorker()
 
 		if (bRet)
 		{
-			//收到0字节数据，此时要判断错误
-			if (dwBytesTransferred == 0 && OP_RECV == Type)
-			{
-				//不是故意投递的0字节接收
-				if (pContex->BuffRecv.len != 0)
-				{
-					ResetContex(pContex);
-					continue;
-				}
-			}
+			////收到0字节数据，此时要判断错误
+			//if (dwBytesTransferred == 0 && OP_RECV == Type)
+			//{
+			//	//不是故意投递的0字节接收
+			//	if (pContex->BuffRecv.len != 0)
+			//	{
+			//		ResetContex(pContex);
+			//		continue;
+			//	}
+			//}
 
 			if (OP_RECV == Type)
 			{
@@ -1546,8 +1672,12 @@ void CSuperTcp::RunWorker()
 					if (WSA_IO_PENDING != nErr)
 					{
 						if (nErr!= WSAENOTSOCK) //socket已经释放
-						{
-							printf("WSARecv error with %d on socket #%d\n", nErr,pContex->SockCtx.Socket);
+						{							
+							sprintf_s(szMsg, "WSARecv error with %d on socket #%d", nErr, pContex->SockCtx.Socket);
+							if (cbShowMsg)
+							{
+								cbShowMsg(szMsg);
+							}
 						}
 						ResetContex(pContex);
 					}
@@ -1581,8 +1711,12 @@ void CSuperTcp::RunWorker()
 									if (WSA_IO_PENDING != nErr)
 									{
 										if (nErr != WSAENOTSOCK) //socket已经释放
-										{
-											printf("WSASend error with %d on socket #%d\n", nErr, pContex->SockCtx.Socket);
+										{											
+											sprintf_s(szMsg, "WSASend error with %d on socket #%d", nErr, pContex->SockCtx.Socket);
+											if (cbShowMsg)
+											{
+												cbShowMsg(szMsg);
+											}
 										}
 										ResetContex(pContex);
 									}
@@ -1625,7 +1759,11 @@ void CSuperTcp::RunWorker()
 				HANDLE hIocp = CreateIoCompletionPort((HANDLE)pContex->SockCtx.Socket, m_hIOCP, 0, 0);
 				if (!hIocp)
 				{
-					printf("combine accepted socket with iocp fail %d\n",GetLastError());
+					sprintf_s(szMsg, "combine accepted socket with iocp fail %d", GetLastError());
+					if (cbShowMsg)
+					{
+						cbShowMsg(szMsg);
+					}
 					ResetContex(pContex);
 					continue;
 				}
@@ -1641,7 +1779,11 @@ void CSuperTcp::RunWorker()
 				{
 					if (WSA_IO_PENDING != WSAGetLastError())
 					{
-						printf("recv from socket %d error,the socket will be closed\n",pContex->SockCtx.Socket);
+						sprintf_s(szMsg, "recv from socket %d error,the socket will be closed", pContex->SockCtx.Socket);
+						if (cbShowMsg)
+						{
+							cbShowMsg(szMsg);
+						}
 						ResetContex(pContex);
 						continue;
 					}
@@ -1682,7 +1824,11 @@ void CSuperTcp::RunWorker()
 				{
 					if (WSA_IO_PENDING != WSAGetLastError())
 					{
-						//printf("recv from socket %d error,the socket will be closed\n",pContext->Socket);
+						sprintf_s(szMsg, "recv from socket %d error,the socket will be closed", pContex->SockCtx.Socket);
+						if (cbShowMsg)
+						{
+							cbShowMsg(szMsg);
+						}
 						ResetContex(pContex);
 						continue;
 					}
@@ -1725,7 +1871,12 @@ void CSuperTcp::RunWorker()
 					NULL
 					);
 
-				printf("GetQueuedCompletionStatus return with error=%d: %s\n", dwErr, (LPSTR)lpMsgBuf);
+				sprintf_s(szMsg, "GetQueuedCompletionStatus return with error=%d: %s", dwErr, (LPSTR)lpMsgBuf);
+				if (cbShowMsg)
+				{
+					cbShowMsg(szMsg);
+				}
+				
 
 				LocalFree(lpMsgBuf);
 			}

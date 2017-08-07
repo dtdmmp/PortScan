@@ -88,6 +88,7 @@ typedef void (*pfnOnRecvComplete)(SOCKET sSocket, DWORD dwLen,char* pData,const 
 typedef void (*pfnOnSendComplete)(SOCKET sSocket, DWORD dwLen, const SOCK_CONTEXT& Context);
 typedef void (*pfnOnDisconnect)(SOCKET sSocket, const SOCK_CONTEXT& Context);
 typedef void (*pfnScanComplete)(void);
+typedef void (*pfnShowMessage)(const char* pszMsg);
 
 
 class CSuperTcp
@@ -104,26 +105,30 @@ public:
 	BOOL StartListen(pfnOnConnect OnConnect = nullptr,
 		pfnOnDisconnect OnDisconnect = nullptr,
 		pfnOnRecvComplete OnRecvComplete = nullptr,
+		pfnShowMessage OnMsg=nullptr,
 		unsigned short uPort = 8086, 
 		const char* lpszIpAddr = "0.0.0.0");
 	BOOL StartConnect(pfnOnConnect OnConnect = nullptr,
 		pfnOnDisconnect OnDisconnect = nullptr,
 		pfnOnRecvComplete OnRecvComplete = nullptr,
+		pfnShowMessage OnMsg = nullptr,
 		unsigned long  uConnCount=10000,
 		unsigned short uPort = 8086,
 		const char* lpszIpAddr = "127.0.0.1",
 		const char* lpszLocalIp = "0.0.0.0");
 
-	BOOL StartScaner(pfnOnConnect OnConnect = nullptr, //连接成功回调
+	BOOL StartScaner(
+		std::vector<unsigned short>&& PortList,		   //端口列表
+		pfnOnConnect OnConnect = nullptr,			   //连接成功回调
 		pfnOnDisconnect OnDisconnect = nullptr,        //连接关闭回调
 		pfnOnRecvComplete OnRecvComplete = nullptr,    //接收完成回调
 		pfnScanComplete OnScanComplete=nullptr,        //扫描完成回调
+		pfnShowMessage OnMsg = nullptr,
 		unsigned long uConnCount=10000,                //并发数
 		const char* lpszStartIp="127.0.0.1",           //起始IP
 		const char* lpszStopIp="127.0.0.1",            //终止IP
-		unsigned short uStartPort=1,                   //起始端口
-		unsigned short uStopPort=65535,				   //终止端口
-		const char* lpszLocalIp="0.0.0.0");          //本地地址
+		const char* lpszLocalIp="0.0.0.0");            //本地地址
+
 
 
 	//停止iocp socket模型
@@ -173,12 +178,12 @@ protected:
 	//要连接的端口
 	unsigned short m_uRemotePort = 8086;
 	long m_lValidSock = 0;
+	BOOL m_bComplete = FALSE;
 
 	//2-扫描模式，对范围ip和范围端口进行链接尝试
 	struct in_addr m_addrFrom = {127,0,0,1};
 	struct in_addr m_addrTo = { 127,0,0,1 };
-	unsigned short m_uPortFrom = 1;
-	unsigned short m_uPortTo = 65535;
+	std::vector<unsigned short> m_vecPorts;
 	long m_lBurstSock = 0;
 
 
@@ -190,6 +195,7 @@ protected:
 	pfnOnRecvComplete cbOnRecvComplete=nullptr;
 	pfnOnDisconnect cbOnDisconnect = nullptr;
 	pfnScanComplete cbOnScanComplete = nullptr;
+	pfnShowMessage cbShowMsg = nullptr;
 
 	void ResetContex(PER_IO_CONTEXT* pContex);
 

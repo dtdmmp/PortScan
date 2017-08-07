@@ -29,4 +29,6 @@ public:
 	DECLARE_MESSAGE_MAP()
 };
 
+extern CRITICAL_SECTION g_csResult,g_csLog;
+
 extern CPortScanApp theApp;
