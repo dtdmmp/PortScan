@@ -70,6 +70,8 @@ void CPortScanDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_BUTTON1, m_btnStart);
 	DDX_Control(pDX, IDC_BUTTON2, m_btnStop);
 	DDX_Control(pDX, IDOK, m_btnExit);
+	DDX_Control(pDX, IDC_TAB1, m_tabLogAndData);
+	DDX_Control(pDX, IDC_EDIT5, m_editLogText);
 }
 
 BEGIN_MESSAGE_MAP(CPortScanDlg, CDialogEx)
@@ -88,6 +90,7 @@ BEGIN_MESSAGE_MAP(CPortScanDlg, CDialogEx)
 	ON_COMMAND(ID_OPEN_OPENWITHMSTSC, &CPortScanDlg::OnMnOpenWithMstsc)
 	ON_WM_DESTROY()
 	ON_COMMAND(ID_OPEN_SAVE, &CPortScanDlg::OnMnSave)
+	ON_NOTIFY(TCN_SELCHANGE, IDC_TAB1, &CPortScanDlg::OnTcnSelchangeTab1)
 END_MESSAGE_MAP()
 
 
@@ -139,6 +142,28 @@ BOOL CPortScanDlg::OnInitDialog()
 	m_lstResult.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_INFOTIP);
 	m_lstResult.InsertColumn(0, _T("IPAddress:Port"), LVCFMT_LEFT,200);
 	m_lstResult.InsertColumn(1, _T("Title"), LVCFMT_LEFT, 300);
+
+	m_tabLogAndData.InsertItem(0, _T("LOG"));
+	m_tabLogAndData.InsertItem(1, _T("DATA"));
+
+	m_editRecvText.SetParent(&m_tabLogAndData);
+	m_editLogText.SetParent(&m_tabLogAndData);
+
+	CRect rect;
+	m_tabLogAndData.GetClientRect(&rect);
+	rect.top += 35;
+	rect.bottom -= 10;
+	rect.left += 10;
+	rect.right -= 10;
+
+	m_editLogText.MoveWindow(&rect);
+	m_editRecvText.MoveWindow(&rect);
+
+	m_tabLogAndData.SetCurSel(0);
+	m_editLogText.ShowWindow(SW_SHOW);
+	m_editRecvText.ShowWindow(SW_HIDE);
+
+
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -369,10 +394,32 @@ void CPortScanDlg::OnSockMsg(const char* pszMsg)
 {
 	EnterCriticalSection(&g_csLog);
 	if (pszMsg)
-	{		
-		m_pDlg->m_strLog += CA2T(pszMsg).m_psz; 
-		m_pDlg->m_strLog += _T("\r\n");
-		m_pDlg->m_editRecvText.SetWindowText(m_pDlg->m_strLog);
+	{	
+		SYSTEMTIME st;
+		GetLocalTime(&st);
+		CString strNewLine;
+		strNewLine.Format(_T("%04d-%02d-%02d %02d:%02d:%02d "),st.wYear,st.wMonth,st.wDay,st.wHour,st.wMinute,st.wSecond);
+		strNewLine += CA2T(pszMsg).m_psz;
+		strNewLine += _T("\r\n");
+
+		int nCount = m_pDlg->m_arLogs.GetCount();
+		if (nCount>3000)
+		{
+			m_pDlg->m_arLogs.RemoveAt(0, nCount - 3000);
+		}
+
+		m_pDlg->m_arLogs.Add(strNewLine);
+
+		nCount = m_pDlg->m_arLogs.GetCount();
+
+		CString strText;
+		while (nCount>0)
+		{
+			strText += m_pDlg->m_arLogs.GetAt(nCount-1);
+			nCount--;
+		}
+
+		m_pDlg->m_editLogText.SetWindowText(strText);
 	}
 	LeaveCriticalSection(&g_csLog);
 }
@@ -675,4 +722,26 @@ void CPortScanDlg::OnMnSave()
 			CloseHandle(hFile);
 		}
 	}
+}
+
+
+void CPortScanDlg::OnTcnSelchangeTab1(NMHDR *pNMHDR, LRESULT *pResult)
+{
+	// TODO: 在此添加控件通知处理程序代码
+	int nItem = m_tabLogAndData.GetCurSel();
+	switch (nItem)
+	{
+	case 0:
+		m_editLogText.ShowWindow(SW_SHOW);
+		m_editRecvText.ShowWindow(SW_HIDE);
+		break;
+	case 1:
+		m_editLogText.ShowWindow(SW_HIDE);
+		m_editRecvText.ShowWindow(SW_SHOW);
+		break;
+	default:
+		break;
+	}
+
+	*pResult = 0;
 }

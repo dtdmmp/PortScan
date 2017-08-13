@@ -65,7 +65,7 @@ public:
 	std::list<std::shared_ptr<char>> m_pRecvDataList;
 	CRITICAL_SECTION m_csDataList;
 
-	CString m_strLog;
+	CStringArray m_arLogs;
 
 private:
 	CSuperTcp m_super;
@@ -91,4 +91,7 @@ public:
 	afx_msg void OnMnOpenWithMstsc();
 	afx_msg void OnDestroy();
 	afx_msg void OnMnSave();
+	CTabCtrl m_tabLogAndData;
+	afx_msg void OnTcnSelchangeTab1(NMHDR *pNMHDR, LRESULT *pResult);
+	CEdit m_editLogText;
 };
